@@ -60,6 +60,7 @@ def run_cursor_agent(
     workspace: str,
     mode: str | None,
     extra_args: list[str] | None = None,
+    timeout: int = 300,
 ) -> CursorAgentResult:
     prompt = build_prompt_from_messages(messages)
     resolved_workspace = str(Path(workspace).expanduser().resolve())
@@ -79,9 +80,19 @@ def run_cursor_agent(
         cmd += ["--model", model]
     if extra_args:
         cmd += extra_args
-    cmd.append(prompt)
 
-    proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
+    # Pass prompt via stdin using a shell heredoc to avoid ARG_MAX errors
+    # on very long prompts (kernel limit ~2MB on Linux)
+    shell_cmd = " ".join(cmd)
+    heredoc_script = f"cat <<'HERMES_EOF'\n{prompt}\nHERMES_EOF"
+    proc = subprocess.run(
+        f"{shell_cmd} <<'HERMES_EOF'\n{prompt}\nHERMES_EOF",
+        shell=True,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=timeout,
+    )
     stdout = (proc.stdout or "").strip()
     stderr = (proc.stderr or "").strip()
     if not stdout:
@@ -89,8 +100,12 @@ def run_cursor_agent(
 
     try:
         payload = json.loads(stdout)
-    except json.JSONDecodeError as exc:
+    except (json.JSONDecodeError, ValueError) as exc:
         raise RuntimeError(f"cursor agent returned non-JSON output: {stdout}") from exc
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(
+            f"cursor agent timed out after {timeout}s"
+        ) from exc
 
     return CursorAgentResult(
         ok=proc.returncode == 0 and not payload.get("is_error", False),

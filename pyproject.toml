@@ -5,7 +5,7 @@ description = "OpenAI-compatible proxy for Cursor Agent CLI"
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
-authors = [{ "name": "Emtesseract", "email": "hello@emtesseract.com" }]
+authors = [{name = "Emtesseract", email = "hello@emtesseract.com"}]
 classifiers = [
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3.11",
