@@ -42,7 +42,7 @@ Optional environment variables:
 ```bash
 export CURSOR_COSPLAY_HOST=127.0.0.1
 export CURSOR_COSPLAY_PORT=8765
-export CURSOR_COSPLAY_API_KEY=change-me
+export CURSOR_COSPLAY_API_KEY=<your-key>
 export CURSOR_COSPLAY_WORKSPACE_ROOT=$HOME/Code/GH
 uv run cursor-cosplay
 ```
@@ -131,3 +131,7 @@ uv run ruff check .
 ## Status
 
 Intentionally minimal proxy focused on one-shot `chat/completions` calls to `cursor agent`. Streaming is not implemented.
+
+---
+
+Made with :heart: and :coffee: in Michigan. Copyright (2026) [Emtesseract](https://emtesseract.com).
