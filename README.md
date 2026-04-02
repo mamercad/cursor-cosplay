@@ -122,6 +122,12 @@ Run tests:
 uv run python -m pytest -q
 ```
 
+Run tests with coverage:
+
+```bash
+uv run python -m pytest --cov=cursor_cosplay --cov-report=term-missing -q
+```
+
 Run lint:
 
 ```bash

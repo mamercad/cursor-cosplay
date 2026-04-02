@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import json
+import shlex
 import subprocess
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 from cursor_cosplay.models import CursorAgentResult
 
@@ -53,6 +54,44 @@ def to_openai_chat_response(result: CursorAgentResult, model: str) -> dict[str, 
     }
 
 
+def iter_openai_chat_completion_chunks(
+    result: CursorAgentResult,
+    model: str,
+) -> Iterator[str]:
+    chunk_id = result.request_id or "cursor-cosplay-chatcmpl"
+    base_chunk = {
+        "id": chunk_id,
+        "object": "chat.completion.chunk",
+        "created": 0,
+        "model": model,
+    }
+
+    first_chunk = {
+        **base_chunk,
+        "choices": [
+            {
+                "index": 0,
+                "delta": {"role": "assistant", "content": result.result},
+                "finish_reason": None,
+            }
+        ],
+    }
+    yield f"data: {json.dumps(first_chunk)}\n\n"
+
+    final_chunk = {
+        **base_chunk,
+        "choices": [
+            {
+                "index": 0,
+                "delta": {},
+                "finish_reason": "stop",
+            }
+        ],
+    }
+    yield f"data: {json.dumps(final_chunk)}\n\n"
+    yield "data: [DONE]\n\n"
+
+
 def run_cursor_agent(
     *,
     messages: list[dict[str, Any]],
@@ -81,18 +120,21 @@ def run_cursor_agent(
     if extra_args:
         cmd += extra_args
 
-    # Pass prompt via stdin using a shell heredoc to avoid ARG_MAX errors
-    # on very long prompts (kernel limit ~2MB on Linux)
-    shell_cmd = " ".join(cmd)
-    heredoc_script = f"cat <<'HERMES_EOF'\n{prompt}\nHERMES_EOF"
-    proc = subprocess.run(
-        f"{shell_cmd} <<'HERMES_EOF'\n{prompt}\nHERMES_EOF",
-        shell=True,
-        capture_output=True,
-        text=True,
-        check=False,
-        timeout=timeout,
-    )
+    quoted_cmd = " ".join(shlex.quote(part) for part in cmd)
+    shell_script = f"{quoted_cmd} <<'HERMES_EOF'\n{prompt}\nHERMES_EOF"
+
+    try:
+        proc = subprocess.run(
+            shell_script,
+            shell=True,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(f"cursor agent timed out after {timeout}s") from exc
+
     stdout = (proc.stdout or "").strip()
     stderr = (proc.stderr or "").strip()
     if not stdout:
@@ -102,10 +144,6 @@ def run_cursor_agent(
         payload = json.loads(stdout)
     except (json.JSONDecodeError, ValueError) as exc:
         raise RuntimeError(f"cursor agent returned non-JSON output: {stdout}") from exc
-    except subprocess.TimeoutExpired as exc:
-        raise RuntimeError(
-            f"cursor agent timed out after {timeout}s"
-        ) from exc
 
     return CursorAgentResult(
         ok=proc.returncode == 0 and not payload.get("is_error", False),

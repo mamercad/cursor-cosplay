@@ -5,10 +5,15 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, Header, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from cursor_cosplay.models import CursorAgentResult
-from cursor_cosplay.service import run_cursor_agent, to_openai_chat_response
+from cursor_cosplay.service import (
+    iter_openai_chat_completion_chunks,
+    run_cursor_agent,
+    to_openai_chat_response,
+)
 
 
 class ChatCompletionsRequest(BaseModel):
@@ -17,6 +22,7 @@ class ChatCompletionsRequest(BaseModel):
     model: str = "cursor-agent"
     messages: list[dict[str, Any]]
     metadata: dict[str, Any] | None = None
+    stream: bool = False
 
 
 class HealthResponse(BaseModel):
@@ -63,11 +69,11 @@ def create_app() -> FastAPI:
         require_auth(authorization)
         return ModelsResponse()
 
-    @app.post("/v1/chat/completions")
+    @app.post("/v1/chat/completions", response_model=None)
     def chat_completions(
         request: ChatCompletionsRequest,
         authorization: str | None = Header(default=None),
-    ) -> dict[str, Any]:
+    ):
         require_auth(authorization)
         metadata = request.metadata or {}
         mode = metadata.get("cursor_mode")
@@ -84,6 +90,11 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=502, detail=str(exc)) from exc
         if not result.ok:
             raise HTTPException(status_code=502, detail=result.raw)
+        if request.stream:
+            return StreamingResponse(
+                iter_openai_chat_completion_chunks(result, model=request.model),
+                media_type="text/event-stream",
+            )
         return to_openai_chat_response(result, model=request.model)
 
     return app
